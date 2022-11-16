@@ -50,7 +50,7 @@ typedef enum {
 typedef enum {
   kPointCloud2Msg = 0,
   kLivoxCustomMsg = 1,
-  kPclPxyziMsg = 2,
+  // kPclPxyziMsg = 2, # deprecated format
   kLivoxImuMsg = 3,
 } MessageTypeOfTransfer;
 
@@ -78,8 +78,6 @@ class Lddc {
                               StoragePacket *storage_packet);
   uint32_t PublishPointcloud2(LidarDataQueue *queue, uint32_t packet_num,
                               uint8_t handle);
-  uint32_t PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
-                                 uint8_t handle);
   uint32_t PublishCustomPointcloud(LidarDataQueue *queue, uint32_t packet_num,
                                    uint8_t handle);
   uint32_t PublishImuData(LidarDataQueue *queue, uint32_t packet_num,
