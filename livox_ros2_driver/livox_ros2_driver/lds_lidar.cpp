@@ -263,6 +263,9 @@ void LdsLidar::OnDeviceChange(const DeviceInfo *info, DeviceEvent type) {
       /** Ensure the thread safety for set_bits and connect_state */
       lock_guard<mutex> lock(g_lds_ldiar->config_mutex_);
 
+      printf("Lidar[%s] type[%d] target imu_rate[%u]\n",
+             p_lidar->info.broadcast_code, info->type, p_lidar->config.imu_rate);
+
       if (p_lidar->config.coordinate != 0) {
         SetSphericalCoordinate(handle, SetCoordinateCb, g_lds_ldiar);
       } else {
@@ -282,6 +285,9 @@ void LdsLidar::OnDeviceChange(const DeviceInfo *info, DeviceEvent type) {
         LidarSetImuPushFrequency(handle, (ImuFreq)(p_lidar->config.imu_rate),
                                  SetImuRatePushFrequencyCb, g_lds_ldiar);
         p_lidar->config.set_bits |= kConfigImuRate;
+      } else {
+        printf("Lidar[%s] type[%d] skips LidarSetImuPushFrequency in SDK path\n",
+               p_lidar->info.broadcast_code, info->type);
       }
 
       if (p_lidar->config.extrinsic_parameter_source ==
@@ -414,7 +420,8 @@ void LdsLidar::SetImuRatePushFrequencyCb(livox_status status, uint8_t handle,
   LidarDevice *p_lidar = &(lds_lidar->lidars_[handle]);
 
   if (status == kStatusSuccess) {
-    printf("Set imu rate success!\n");
+    printf("Set imu rate success! handle[%u] response[%u] applied_rate[%u]\n",
+           handle, response, p_lidar->config.imu_rate);
 
     lock_guard<mutex> lock(lds_lidar->config_mutex_);
     p_lidar->config.set_bits &= ~((uint32_t)(kConfigImuRate));
@@ -425,7 +432,8 @@ void LdsLidar::SetImuRatePushFrequencyCb(livox_status status, uint8_t handle,
   } else {
     LidarSetImuPushFrequency(handle, (ImuFreq)(p_lidar->config.imu_rate),
                              SetImuRatePushFrequencyCb, g_lds_ldiar);
-    printf("Set imu rate fail, try again!\n");
+    printf("Set imu rate fail, try again! handle[%u] status[%d] response[%u] target[%u]\n",
+           handle, status, response, p_lidar->config.imu_rate);
   }
 }
 

@@ -40,8 +40,8 @@
 
 namespace livox_ros {
 
-  uint64_t cur_lidar_time = 0;
-  uint64_t last_imu_time = 0;
+  static uint64_t cur_lidar_time = 0;
+  static uint64_t last_imu_time = 0;
 
   static void FillPointsToPclPoints(std::vector<PclPoint> &points,
                                     LivoxPointXyzrtl *src_point,
@@ -206,6 +206,7 @@ uint32_t Lddc::PublishPointcloud2(LidarDataQueue *queue, uint32_t packet_num,
     LivoxEthPacket *raw_packet =
         reinterpret_cast<LivoxEthPacket *>(storage_packet.raw_data);
     timestamp = GetStoragePacketTimestamp(&storage_packet, data_source);
+    cur_lidar_time = timestamp;
     int64_t packet_gap = timestamp - last_timestamp;
     if ((packet_gap > lidar->packet_interval_max) &&
         lidar->data_is_pubulished) {
@@ -221,7 +222,6 @@ uint32_t Lddc::PublishPointcloud2(LidarDataQueue *queue, uint32_t packet_num,
       // Use the first packet timestamp as the message stamp and base time.
       cloud.header.stamp = rclcpp::Time(timestamp);
       base_time = timestamp;
-      cur_lidar_time = timestamp;
       packet_offset = 0;
     }
     else {
@@ -324,6 +324,7 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
     LivoxEthPacket *raw_packet =
         reinterpret_cast<LivoxEthPacket *>(storage_packet.raw_data);
     timestamp = GetStoragePacketTimestamp(&storage_packet, data_source);
+    cur_lidar_time = timestamp;
     int64_t packet_gap = timestamp - last_timestamp;
     if ((packet_gap > lidar->packet_interval_max) &&
         lidar->data_is_pubulished) {
@@ -335,7 +336,6 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
       }
     }
     if (!published_packet) {
-      cur_lidar_time = timestamp;
       cloud.header.stamp = timestamp / 1000.0;  // to pcl ros time stamp
     }
     uint32_t single_point_num = storage_packet.point_num * echo_num;
@@ -447,6 +447,7 @@ uint32_t Lddc::PublishCustomPointcloud(LidarDataQueue *queue,
     LivoxEthPacket *raw_packet =
         reinterpret_cast<LivoxEthPacket *>(storage_packet.raw_data);
     timestamp = GetStoragePacketTimestamp(&storage_packet, data_source);
+    cur_lidar_time = timestamp;
     int64_t packet_gap = timestamp - last_timestamp;
     if ((packet_gap > lidar->packet_interval_max) &&
         lidar->data_is_pubulished) {
@@ -463,7 +464,6 @@ uint32_t Lddc::PublishCustomPointcloud(LidarDataQueue *queue,
       livox_msg.timebase = timestamp;
       packet_offset_time = 0;
       /** convert to ros time stamp */
-      cur_lidar_time = timestamp;
       livox_msg.header.stamp = rclcpp::Time(timestamp);
     } else {
       packet_offset_time = (uint32_t)(timestamp - livox_msg.timebase);
@@ -535,21 +535,17 @@ uint32_t Lddc::PublishImuData(LidarDataQueue *queue, uint32_t packet_num,
   LivoxEthPacket *raw_packet =
       reinterpret_cast<LivoxEthPacket *>(storage_packet.raw_data);
   timestamp = GetStoragePacketTimestamp(&storage_packet, data_source);
+  int64_t lidar_second_gap = static_cast<int64_t>(timestamp / kNsPerSecond) -
+      static_cast<int64_t>(cur_lidar_time / kNsPerSecond);
+  int64_t imu_second_gap = static_cast<int64_t>(timestamp / kNsPerSecond) -
+      static_cast<int64_t>(last_imu_time / kNsPerSecond);
+  if ((lidar_second_gap >= 1) && (imu_second_gap >= 1)) {
+    timestamp -= kNsPerSecond;
+  }
+  last_imu_time = timestamp;
   if (timestamp) {
-    if (cur_lidar_time > timestamp) {
-      uint64_t time_d = cur_lidar_time - timestamp;
-      if (time_d > 500000000) {
-        timestamp += (time_d / 1000000000 + 1) * 1000000000;
-      }
-    }
-
-    if (timestamp > last_imu_time + 1000000000) {
-      timestamp -= 1000000000;
-    }
-
     imu_data.header.stamp =
         rclcpp::Time(timestamp);  // to ros time stamp
-    last_imu_time = timestamp;
   }
 
   uint8_t point_buf[2048];
@@ -570,6 +566,8 @@ uint32_t Lddc::PublishImuData(LidarDataQueue *queue, uint32_t packet_num,
       std::dynamic_pointer_cast<rclcpp::Publisher
       <sensor_msgs::msg::Imu>>(GetCurrentImuPublisher(handle));
   if (kOutputToRos == output_type_) {
+    // Match point cloud behavior: stamp with current ROS time at publish.
+    imu_data.header.stamp = cur_node_->now();
     publisher->publish(imu_data);
   } else {
 #if 0    
@@ -638,6 +636,26 @@ void Lddc::DistributeLidarData(void) {
       continue;
     }
     PollingLidarPointCloudData(lidar_id, lidar);
+  }
+
+  if (lds_->IsRequestExit()) {
+    PrepareExit();
+  }
+}
+
+void Lddc::DistributeIMUData(void) {
+  if (lds_ == nullptr) {
+    return;
+  }
+  lds_->imu_semaphore_.Wait();
+  for (uint32_t i = 0; i < lds_->lidar_count_; i++) {
+    uint32_t lidar_id = i;
+    LidarDevice *lidar = &lds_->lidars_[lidar_id];
+    LidarDataQueue *p_queue = &lidar->imu_data;
+    if ((kConnectStateSampling != lidar->connect_state) ||
+        (p_queue == nullptr)) {
+      continue;
+    }
     PollingLidarImuData(lidar_id, lidar);
   }
 

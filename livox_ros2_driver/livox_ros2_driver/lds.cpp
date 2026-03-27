@@ -550,7 +550,7 @@ static void PointCloudConvert(LivoxPoint *p_dpoint, LivoxRawPoint *p_raw_point) 
 
 /* Member function --------------------------------------------------------- */
 Lds::Lds(uint32_t buffer_time_ms, uint8_t data_src) : \
-    lidar_count_(kMaxSourceLidar), semaphore_(0), \
+    lidar_count_(kMaxSourceLidar), semaphore_(0), imu_semaphore_(0), \
     buffer_time_ms_(buffer_time_ms), data_src_(data_src), request_exit_(false) {
     ResetLds(data_src_);
 }
@@ -654,10 +654,16 @@ void Lds::StorageRawPacket(uint8_t handle, LivoxEthPacket* eth_packet) {
       /** Whether a new sync frame */
       if ((cur_timestamp.stamp < packet_statistic->last_timestamp) &&
           (cur_timestamp.stamp < kPacketTimeGap)) {
+        packet_statistic->pps_timebase_set = false;
+      }
+
+      if (!packet_statistic->pps_timebase_set) {
         auto cur_time = std::chrono::high_resolution_clock::now();
         int64_t sync_time = cur_time.time_since_epoch().count();
-        /** used receive time as timebase */
+        /** Keep lidar and imu on the same PPS anchor. */
         packet_statistic->timebase = sync_time;
+        packet_statistic->imu_timebase = sync_time;
+        packet_statistic->pps_timebase_set = true;
       }
     }
     packet_statistic->last_timestamp = cur_timestamp.stamp;
@@ -686,17 +692,22 @@ void Lds::StorageRawPacket(uint8_t handle, LivoxEthPacket* eth_packet) {
       /** Whether a new sync frame */
       if ((cur_timestamp.stamp < packet_statistic->last_imu_timestamp) &&
           (cur_timestamp.stamp < kPacketTimeGap)) {
+        packet_statistic->pps_timebase_set = false;
+      }
+
+      if (!packet_statistic->pps_timebase_set) {
         auto cur_time = std::chrono::high_resolution_clock::now();
         int64_t sync_time = cur_time.time_since_epoch().count();
-        /** used receive time as timebase */
+        packet_statistic->timebase = sync_time;
         packet_statistic->imu_timebase = sync_time;
+        packet_statistic->pps_timebase_set = true;
       }
     }
     packet_statistic->last_imu_timestamp = cur_timestamp.stamp;
 
     LidarDataQueue *p_queue = &p_lidar->imu_data;
     if (nullptr == p_queue->storage_packet) {
-      uint32_t queue_size = 256;  /* fixed imu data queue size */
+      uint32_t queue_size = 1024;  /* larger IMU queue prevents burst drops */
       InitQueue(p_queue, queue_size);
       printf("Lidar[%02d][%s] imu storage queue size : %d %d\n", p_lidar->handle,
              p_lidar->info.broadcast_code, queue_size, p_queue->size);
@@ -706,6 +717,10 @@ void Lds::StorageRawPacket(uint8_t handle, LivoxEthPacket* eth_packet) {
           GetEthPacketLen(eth_packet->data_type),
           packet_statistic->imu_timebase,
           GetPointsPerPacket(eth_packet->data_type));
+
+      if (imu_semaphore_.GetCount() <= 0) {
+        imu_semaphore_.Signal();
+      }
     }
   }
 }

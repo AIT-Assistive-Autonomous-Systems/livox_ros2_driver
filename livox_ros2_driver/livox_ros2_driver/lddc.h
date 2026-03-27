@@ -62,6 +62,7 @@ class Lddc {
 
   int RegisterLds(Lds *lds);
   void DistributeLidarData(void);
+  void DistributeIMUData(void);
   void CreateBagFile(const std::string &file_name);
   void PrepareExit(void);
 

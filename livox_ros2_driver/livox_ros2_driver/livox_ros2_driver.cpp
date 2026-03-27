@@ -190,12 +190,18 @@ LivoxDriver::LivoxDriver(const rclcpp::NodeOptions & node_options)
   }
 
   poll_thread_ = std::make_shared<std::thread>(&LivoxDriver::pollThread, this);
+  imu_thread_ = std::make_shared<std::thread>(&LivoxDriver::imuThread, this);
 }
 
 LivoxDriver::~LivoxDriver()
 {
   exit_signal_.set_value();
+  if (lddc_ptr_ && lddc_ptr_->lds_) {
+    lddc_ptr_->lds_->semaphore_.Signal();
+    lddc_ptr_->lds_->imu_semaphore_.Signal();
+  }
   poll_thread_->join();
+  imu_thread_->join();
 }
 
 void LivoxDriver::pollThread()
@@ -204,6 +210,16 @@ void LivoxDriver::pollThread()
 
   do {
     lddc_ptr_->DistributeLidarData();
+    status = future_.wait_for(std::chrono::seconds(0));
+  } while (status == std::future_status::timeout);
+}
+
+void LivoxDriver::imuThread()
+{
+  std::future_status status;
+
+  do {
+    lddc_ptr_->DistributeIMUData();
     status = future_.wait_for(std::chrono::seconds(0));
   } while (status == std::future_status::timeout);
 }

@@ -115,6 +115,7 @@ typedef struct {
   int64_t last_imu_timestamp;
   int64_t imu_timebase; /**< unit:ns */
   uint32_t timebase_state;
+  bool pps_timebase_set; /**< true after now() is captured for current PPS frame */
 } LidarPacketStatistic;
 
 /** 8bytes stamp to uint64_t stamp */
@@ -449,6 +450,7 @@ class Lds {
   uint8_t lidar_count_;                 /**< Lidar access handle. */
   LidarDevice lidars_[kMaxSourceLidar]; /**< The index is the handle */
   Semaphore semaphore_;
+  Semaphore imu_semaphore_;
 
  protected:
   uint32_t buffer_time_ms_; /**< Buffer time before data in queue is read */
